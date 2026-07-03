@@ -30,7 +30,6 @@ replay:
 # 推荐: gpt-4o (OpenAI) 或 gpt-4o-mini（便宜），或支持 vision 的 DeepSeek-VL API
 # 注意: 普通 deepseek-chat 不支持图像，这里必须用 vision 模型
 
-
 vlm:
   api_key: "sk-24c26577d05b4b0598acace7c666aadc"         # ← 填支持 vision 的 API Key
   api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"     # ← OpenAI 或其他支持 vision 的端点
