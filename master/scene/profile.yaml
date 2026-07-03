@@ -1,27 +1,32 @@
+# 桌面清理任务场景描述
+# Master 用此文件了解当前环境状态，辅助任务规划
+
 scene:
-  - name: kitchenTable
+  - name: worktable
     type: table
+    description: "The main work table that needs to be cleaned"
     contains:
-      - apple
-      - pear
-      - banana
-      - knife
+      - lobster_box       # 白色龙虾饭盒，清理时保留，最后装入垃圾袋
+      - bottles           # 瓶瓶罐罐
+      - snack_bags        # 零食袋
+      - paper_balls       # 纸团
+      - misc_trash        # 其他杂物
 
-  - name: customTable
-    type: table
+  - name: floor_area
+    type: floor
+    description: "Floor area near the table"
     contains:
-      - basket
-      - plate
-      - cup
+      - trash_bag         # 垃圾袋，初始在地面，第一步需要拾起放上桌
 
-  - name: servingTable
-    type: table
+  - name: towel_location
+    type: storage
+    description: "Location where the cleaning towel is stored, fetched via replay trajectory"
     contains:
-      - bowl
-      - fork
-      - spoon
+      - towel             # 抹布，通过 replay 轨迹取到桌上
 
-  - name: basket
-    type: container
-    contains:
-      - egg
+  - name: robot
+    type: agent
+    description: "Galbot-1 humanoid robot"
+    position: null
+    holding: null
+    status: idle

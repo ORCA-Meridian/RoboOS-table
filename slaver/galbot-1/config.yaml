@@ -1,0 +1,85 @@
+# ================================================================
+# Galbot-1 Slaver 配置
+# 注意：galbot 推理运行在工作站侧，slaver 本身不需要模型
+# ================================================================
+
+# Galbot 机器人本机 HTTP 服务（robot_server_clear_table.py 暴露的接口）
+galbot_server:
+  host: "172.16.20.48"       # 机器人 IP，按实际修改
+  port: 9052
+  timeout: 10                 # HTTP 请求超时（秒）
+  task_poll_interval: 2.0     # 轮询 /api/status 的间隔（秒）
+  task_max_wait: 300          # 单步任务最长等待时间（秒），超时则报错
+
+# 相机服务（camera_viewer_1.py 暴露的接口）
+camera_server:
+  host: "172.16.20.48"       # 与机器人同一台机器
+  port: 8080
+  snapshot_path: "/snapshot/head"
+
+# Replay 配置
+replay:
+  parquet_path: "/home/galbot/vla_client/拿毛巾.parquet"
+  fps: 30
+  speed: 1.0
+  step: 15
+  no_reset: false              # 跳过关节复位，只走底盘
+
+# 视觉判断模型（VLM）配置
+# 必须是支持图像输入的模型。
+# 推荐: gpt-4o (OpenAI) 或 gpt-4o-mini（便宜），或支持 vision 的 DeepSeek-VL API
+# 注意: 普通 deepseek-chat 不支持图像，这里必须用 vision 模型
+
+
+vlm:
+  api_key: "sk-24c26577d05b4b0598acace7c666aadc"         # ← 填支持 vision 的 API Key
+  api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"     # ← OpenAI 或其他支持 vision 的端点
+  model: "qwen3.7-plus"                       # ← 支持视觉输入的模型名
+  poll_interval: 3.0
+  max_polls: 100              # 最多轮询次数，超过则认为任务超时
+  # 每一步任务完成判断的 prompt
+  completion_prompts:
+    pick_bag: >
+      You are checking whether STEP 1 of a robot table-cleaning task is finished.
+      Look only at the current image. Answer "yes" only if the trash bag is clearly visible
+      on the table surface and is no longer on the floor. If the bag is still on the floor,
+      still in the robot hand, only partially placed, occluded, or you are uncertain, answer "no".
+      Output exactly one word: yes or no.
+    bag_large_items: >
+      You are checking whether STEP 2 of a robot table-cleaning task is finished.
+      Look only at the current image. Answer "yes" only if the large loose trash items on
+      the table, such as bottles, cans, snack bags, paper balls, and obvious miscellaneous trash,
+      have been placed into the trash bag. The white lobster/takeout box must still remain on
+      the table and must NOT be inside the trash bag at this step. If any obvious large loose
+      trash remains on the table, if the white box has been bagged too early, if the scene is
+      occluded, or if you are uncertain, answer "no".
+      Output exactly one word: yes or no.
+    sweep_trash: >
+      You are checking whether STEP 4, the final step of a robot table-cleaning task, is finished.
+      Look only at the current image. Answer "yes" only if the towel-cleaning stage appears
+      complete: the lobster debris/residue has been swept into the white lobster/takeout box,
+      the white box has been placed into the trash bag, and the visible table surface is mostly
+      clean. If the white box is still on the table, debris is still visible, the table is not
+      mostly clean, the scene is occluded, or you are uncertain, answer "no".
+      Output exactly one word: yes or no.
+
+# Redis 协作器（与 RoboOS master 通信用）
+collaborator:
+  host: "127.0.0.1"
+  port: 6379
+  db: 0
+  clear: false
+  password: ""
+
+# 机器人注册信息
+robot:
+  name: "galbot-1"
+  call_type: "local"           # skill.py 作为本地 MCP 服务启动
+  path: "galbot-1"
+
+# 日志
+logger:
+  level: "INFO"
+  file: ".logs/galbot1_slaver.log"
+
+profiling: true

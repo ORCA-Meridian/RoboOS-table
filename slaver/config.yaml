@@ -1,6 +1,6 @@
 tool:
   # Has the model undergone targeted training on tool_calls
-  support_tool_calls: false
+  support_tool_calls: true   # DeepSeek V3 原生支持 function calling
   # Tool matching configuration
   matching:
     # Maximum number of tools to match for each task
@@ -8,51 +8,35 @@ tool:
     # Minimum similarity score threshold (0.0 to 1.0)
     min_similarity: 0.1
 
-# Cloud Server Infos
+# Slaver 工具调用模型：把 subtask 自然语言解析成工具调用序列
+# 使用 DeepSeek API（纯语言+tool call，无需视觉）
 model:
-  # Model name for the cloud server
-  model_select: "/workspace/model/BAAI/RoboBrain2.0-7B"
-  # Number of retries for planning
+  model_select: "deepseek-v4-pro"
   model_retry_planning: 5
   model_dict:
-    # Model name for the cloud server
-    cloud_model: "/workspace/model/BAAI/RoboBrain2.0-7B"
-    # Deploy for the cloud server
+    cloud_model: "deepseek-v4-pro"
     cloud_type: "default"
-    # API key for the cloud server
-    cloud_api_key: "EMPTY"
-    # URL of the cloud server
-    cloud_server: "http://localhost:4567/v1/"
-    # Maximum number of chat messages to keep in memory
+    cloud_api_key: "sk-c374f805e1394dc9b4a6b6570282db62"   # ← 填你的 DeepSeek API Key
+    cloud_server: "https://api.deepseek.com/"
     max_chat_message: 50
 
-# Collaborator Parameters
+# Collaborator Parameters（Redis，和 Master 保持一致）
 collaborator:
-  # Hostname or IP address of the server
   host: "127.0.0.1"
-  # Port number of the server
   port: 6379
-  # database number
   db: 0
-  # Whether clear the database on startup
   clear: false
-  # Password for server
   password: ""
 
 # Camera Parameters
 camera:
-  # Path to save camera images
   image_path: "images/"
 
-# Robot 
+# Robot — 指向 galbot-1/skill.py 暴露的 MCP 工具服务
+# skill.py 启动后监听 8000 端口，Slaver 通过 streamable-http 连接
 robot:
-  # "local" with a fold name such as "demo_robot"
-  # "remote" with URL such as "http://127.0.0.1:8000", and run the Python script 'skill.py' on the robot itself.
-  # call_type: local
-  # path: "demo_robot_local"
-  name: demo_robot
+  name: "galbot-1"          # ← 必须和 skill.py 注册的名字一致
   call_type: remote
-  path: "http://127.0.0.1:8000"
+  path: "http://127.0.0.1:8000"  # ← skill.py 运行的地址，如果不在同一机器改 IP
 
-# Output reasoning context, time cost and other information
 profiling: true

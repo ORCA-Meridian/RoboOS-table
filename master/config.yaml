@@ -26,22 +26,16 @@ tts:
   # Path to save the TTS output audio file
   tts_output_file: "./tts_audio.wav"
 
-# Cloud Server Infos
+# Master 规划模型：把自然语言任务拆成 subtask 列表分发给 Slaver
+# 使用 DeepSeek API（纯语言任务，无需视觉）
 model:
-  # Model name for the cloud server
-  model_select: "/workspace/model/BAAI/RoboBrain2.0-7B"
-  # Number of retries for planning
+  model_select: "deepseek-v4-pro"
   model_retry_planning: 5
   model_dict:
-    # Model name for the cloud server
-    cloud_model: "/workspace/model/BAAI/RoboBrain2.0-7B"
-    # Deploy for the cloud server
+    cloud_model: "deepseek-v4-pro"
     cloud_type: "default"
-    # API key for the cloud server
-    cloud_api_key: "EMPTY"
-    # URL of the cloud server
-    cloud_server: "http://localhost:4567/v1/"
-    # Maximum number of chat messages to keep in memory
+    cloud_api_key: "sk-c374f805e1394dc9b4a6b6570282db62"   # ← 填你的 DeepSeek API Key
+    cloud_server: "https://api.deepseek.com/"
     max_chat_message: 50
 
 # Collaborator Parameters
