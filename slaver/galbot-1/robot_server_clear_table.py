@@ -746,6 +746,26 @@ def _run_replay_downsample(
                 "message": str(e),
                 "end_time": time.time(),
             })
+# ==================== 任务定义 ====================
+TASK_MAP = {
+    "pick_bag": {
+        "task": "Pick up the bag and place it on the table.",
+        "need_init_pose": True,
+    },
+    "bag_large_items": {
+        "task": "Put the large objects on the table into the bag.",
+        "need_init_pose": False,
+    },
+    "sweep_trash": {
+        "task": "Sweep the remaining trash on the table into the white basin, then put it into the bag.",
+        "need_init_pose": False,
+    },
+    "lift_bag": {
+        "task": "Lift up the bag.",
+        "need_init_pose": False,
+    },
+}
+
 
 def _run_task(task_key: str):
     global _task_status
