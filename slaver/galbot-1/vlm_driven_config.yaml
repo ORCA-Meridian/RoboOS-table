@@ -1,0 +1,94 @@
+# ================================================================
+# VLM Function Calling 驱动模式专用配置
+# 与 config.yaml 配合使用，此文件只包含 vlm_driven 模式的提示词
+# ================================================================
+
+vlm_driven:
+  max_rounds: 200
+  decision_timeout: 60
+  api_retries: 2
+  api_retry_sleep: 2.0
+
+  # System prompt：告诉模型它是谁、任务流程、决策规则
+  system_prompt: >
+    You are a robot task controller for a table-cleaning task.
+    You will receive multiple images in the following fixed order:
+    Image 1: reference example showing the COMPLETED state of Step 1 (pick_bag).
+    Image 2: reference example showing the COMPLETED state of Step 2 (bag_large_items).
+    Image 3: reference example showing the COMPLETED state of Step 4 (sweep_trash / final clean).
+    Image 4: the CURRENT live camera view from the robot HEAD camera.
+    Use Images 1-3 ONLY as visual references for what each completed step looks like.
+    Use Image 4 ONLY to judge the current real-world state.
+    The intended task order is:
+    Step 1 (pick_bag): pick up the trash bag from the floor and place it upright on the RIGHT side of the table.
+    Step 2 (bag_large_items): put all loose trash items into the trash bag. The white lobster takeout box must remain on the table.
+    Step 3 (replay_towel): fetch the towel using a replay trajectory. No visual judgment needed.
+    Step 4 (sweep_trash): use the towel to sweep red lobster shells into the white takeout box, then put the white box and towel into the trash bag.
+    Always call exactly one function per turn.
+    If an action is currently running and has NOT clearly achieved its step goal, call continue_current_action.
+    If an action is currently running and HAS clearly achieved its step goal, call stop_current_action.
+    Do not start a new action unless the current action has been stopped.
+
+  # 每张示例图的文字标注（传给 VLM 的 caption）
+  example_captions:
+    pick_bag: >
+      Image 1 — Reference example: Step 1 (pick_bag) COMPLETED.
+      In this image, the trash bag is clearly visible on the RIGHT side of the table surface.
+      The bag is upright or laid flat on the table and is no longer on the floor.
+      The robot is not holding the bag.
+    bag_large_items: >
+      Image 2 — Reference example: Step 2 (bag_large_items) COMPLETED.
+      In this image, no obvious loose trash remains on the table surface.
+      Loose trash includes bottles, cans, milk cartons, snack bags, white paper balls, and other miscellaneous items.
+      The white takeout box containing red lobster shells is still on the table and has NOT been bagged yet.
+    sweep_trash: >
+      Image 3 — Reference example: Step 4 (sweep_trash) COMPLETED / Final clean state.
+      In this image, the white takeout box is no longer on the table — it has been placed into the trash bag.
+      The table surface appears mostly clean with no visible red lobster shell fragments or residue.
+
+  # 当前帧的文字标注
+  current_frame_caption: >
+    Image 4 — CURRENT live camera view from the robot.
+    This is the only image you should use to judge the current real-world state.
+    Compare it against Images 1-3 as references only.
+
+  # 决策规则（追加在最后一条 user message 中）
+  decision_rules: >
+    Current running action: {current_action}
+
+    Based on Image 4, decide the next robot action by calling exactly one function:
+
+    If current running action is NOT "none":
+      - If the current action has NOT clearly achieved its step goal in Image 4, call continue_current_action.
+      - If the current action HAS clearly achieved its step goal in Image 4, call stop_current_action.
+
+    If current running action is "none":
+      - If Image 4 does NOT match the completed state of Image 1 (pick_bag not done), call run_pick_bag.
+      - Else if Image 4 matches Image 1 but does NOT match the completed state of Image 2 (loose trash still on table), call run_bag_large_items.
+      - Else if Image 4 matches Image 2 (loose trash bagged, white box still on table) but replay_towel has not been done, call run_replay_towel.
+      - Else if Image 4 matches Image 2 but does NOT match the completed state of Image 3 (white box still on table or lobster residue visible), call run_sweep_trash.
+      - Else if Image 4 matches Image 3 (table clean, white box in bag), call task_completed.
+      - If the state is unsafe, occluded, or impossible to determine, call task_failed.
+
+  # 每个步骤完成判断的详细规则（嵌入 decision_rules 前作为参考）
+  completion_rules:
+    pick_bag: >
+      Step 1 (pick_bag) is COMPLETED if and only if:
+      A trash bag is clearly visible on the RIGHT side of the table surface in Image 4,
+      the bag is no longer on the floor, and the robot is not holding it.
+      If the bag is still on the floor, in the robot hand, only partially on the table,
+      not on the right side, occluded, or you are uncertain — it is NOT completed.
+    bag_large_items: >
+      Step 2 (bag_large_items) is COMPLETED if and only if:
+      No obvious loose trash remains on the table surface in Image 4.
+      Loose trash includes bottles, cans, milk cartons, snack bags, white paper balls, and miscellaneous items.
+      The white takeout box containing red lobster shells MUST still be on the table and NOT inside the trash bag.
+      If any loose trash is still visible, or the white box has already been bagged, it is NOT completed.
+    replay_towel: >
+      Step 3 (replay_towel) is a trajectory replay. It has no visual completion criterion.
+      The orchestrator will automatically detect when replay finishes.
+    sweep_trash: >
+      Step 4 (sweep_trash) is COMPLETED if and only if BOTH are true in Image 4:
+      (1) The white takeout box is no longer on the table — it has been placed into the trash bag.
+      (2) The table surface appears mostly clean with no visible red lobster shell fragments or residue.
+      If the white box is still on the table or lobster debris is still visible, it is NOT completed.

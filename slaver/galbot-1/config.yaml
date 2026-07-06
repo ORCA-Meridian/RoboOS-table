@@ -31,8 +31,10 @@ replay:
 # 注意: 普通 deepseek-chat 不支持图像，这里必须用 vision 模型
 
 vlm:
-  api_key: "sk-24c26577d05b4b0598acace7c666aadc"         # ← 填支持 vision 的 API Key
-  api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"     # ← OpenAI 或其他支持 vision 的端点
+  # api_key: "sk-24c26577d05b4b0598acace7c666aadc"
+  api_key: "sk-ws-H.EMDDREI.9OZh.MEYCIQDanyGcUWBxIwZ2KqA_a-RP_E8e30bshSL5sDuzCiVpEAIhAOn9o97-PbRWQyXWK9by2XqkT5HQqH-qmmAsbnshFb4W"         # ← 填支持 vision 的 API Key
+  # api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"     # ← OpenAI 或其他支持 vision 的端点
+  api_base: "https://ws-85cjtrvkxmp22ek5.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
   model: "qwen3.7-plus"                       # ← 支持视觉输入的模型名
   poll_interval: 3.0
   max_polls: 100              # 最多轮询次数，超过则认为任务超时
@@ -101,3 +103,7 @@ logger:
   file: ".logs/galbot1_slaver.log"
 
 profiling: true
+
+vlm_driven:
+  max_rounds: 200
+  decision_timeout: 60

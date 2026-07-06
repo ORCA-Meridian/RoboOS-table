@@ -25,6 +25,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
@@ -52,6 +53,10 @@ def _setup_logger(cfg: dict) -> logging.Logger:
     h_file.setFormatter(fmt)
     log = logging.getLogger("galbot-orchestrator")
     log.setLevel(level)
+    log.propagate = False
+    for handler in list(log.handlers):
+        log.removeHandler(handler)
+        handler.close()
     log.addHandler(h_stream)
     log.addHandler(h_file)
     return log
@@ -353,7 +358,387 @@ class TableClearOrchestrator:
         self.log.info("*" * 60)
         return all_ok
 
+# ---------------------------------------------------------------------------
+# VLM 驱动编排器（function calling 模式）
+# ---------------------------------------------------------------------------
 
+class VLMDrivenOrchestrator:
+    """
+    完全由 VLM function calling 驱动的任务编排器。
+    每轮拍一张当前相机图，同时提供三个阶段成功示例图，由 VLM 决定下一步调哪个函数。
+    """
+
+    TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "run_pick_bag",
+                "description": (
+                    "Call this if the trash bag is not clearly on the right side of the table. "
+                    "This starts the robot action to pick up the trash bag from the floor and place it on the table."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_bag_large_items",
+                "description": (
+                    "Call this if the trash bag is already on the table, but loose trash items "
+                    "such as bottles, cans, cartons, snack bags, paper balls, or miscellaneous trash "
+                    "are still visible on the table. Do not call this for red lobster shells inside the white box."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_replay_towel",
+                "description": (
+                    "Call this after loose trash has been bagged and before sweeping lobster shells. "
+                    "This replays the towel-fetching trajectory to place the towel on the table."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "run_sweep_trash",
+                "description": (
+                    "Call this when the towel should be used to sweep red lobster shells and residue "
+                    "into the white takeout box, then bag the white box and towel."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "continue_current_action",
+                "description": (
+                    "Call this when the current robot action should continue and no new action should be started. "
+                    "This tool does nothing; the orchestrator will wait and observe again."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "stop_current_action",
+                "description": (
+                    "Call this when the current robot action has achieved its goal and should be stopped. "
+                    "After stopping, the orchestrator will observe again and decide the next action."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "task_completed",
+                "description": (
+                    "Call this only when the white takeout box is no longer on the table, "
+                    "the trash bag is on the right side of the table, and the table surface is mostly clean "
+                    "with no visible red lobster shells or residue."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "task_failed",
+                "description": (
+                    "Call this if the current state is unsafe, impossible to determine, or the robot cannot proceed."
+                ),
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
+    ]
+
+    SYSTEM_PROMPT = (
+        "You are a robot task controller for a table-cleaning task. "
+        "You must decide the next robot function call by comparing the CURRENT camera image "
+        "with reference images of completed stages. "
+        "The task has this intended order: "
+        "Step 1: pick up the trash bag from the floor and place it on the right side of the table. "
+        "Step 2: put loose trash items into the trash bag, while keeping the white lobster takeout box on the table. "
+        "Step 3: fetch the towel using replay trajectory. "
+        "Step 4: use the towel to sweep red lobster shells and residue into the white takeout box, "
+        "then put the white box and towel into the trash bag. "
+        "Always call exactly one function. "
+        "If an action is running and not finished, call continue_current_action. "
+        "If an action is running and its goal is achieved, call stop_current_action. "
+        "Do not skip a required step unless the current image clearly shows that step is already completed."
+    )
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.log = _setup_logger(cfg)
+        self.vlm_cfg = cfg["vlm"]
+
+        # 加载 vlm_driven 专用 config（提示词、规则、重试参数）
+        _vd_path = os.path.join(os.path.dirname(__file__), "vlm_driven_config.yaml")
+        with open(_vd_path, "r", encoding="utf-8") as _f:
+            _vd = yaml.safe_load(_f)
+        self.vd_cfg = _vd.get("vlm_driven", {})
+
+        self.decision_timeout = float(self.vd_cfg.get("decision_timeout", 60))
+        self.api_retries = int(self.vd_cfg.get("api_retries", 2))
+        self.api_retry_sleep = float(self.vd_cfg.get("api_retry_sleep", 2.0))
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        cam = cfg["camera_server"]
+        self.snapshot_url = "http://{}:{}{}".format(
+            cam["host"], cam["port"], cam["snapshot_path"]
+        )
+        self.max_rounds = int(self.vd_cfg.get("max_rounds", 20))
+        self.poll_interval = float(self.vlm_cfg["poll_interval"])
+        self.example_imgs = self._load_example_images()
+        self.log.info(
+            "[vlm-driven] 可用 tool functions: %s",
+            ", ".join(t["function"]["name"] for t in self.TOOLS),
+        )
+        
+        self.current_action = None
+        self.client_galbot = GalbotClient(cfg, self.log)
+
+    def _load_example_images(self) -> dict:
+        img_dir = os.path.join(os.path.dirname(__file__), "img")
+        mapping = {
+            "pick_bag": "pick_bag.png",
+            "bag_large_items": "bag_large_items.png",
+            "sweep_trash": "sweep_trash.png",
+        }
+        result = {}
+        for key, fname in mapping.items():
+            path = os.path.join(img_dir, fname)
+            try:
+                with open(path, "rb") as f:
+                    result[key] = base64.b64encode(f.read()).decode("utf-8")
+                self.log.info("[vlm-driven] 示例图加载成功: %s", fname)
+            except Exception as e:
+                self.log.warning("[vlm-driven] 示例图加载失败 %s: %s", fname, e)
+                result[key] = None
+        return result
+
+    def _snapshot_b64(self):
+        try:
+            r = requests.get(self.snapshot_url, timeout=5)
+            r.raise_for_status()
+            return base64.b64encode(r.content).decode("utf-8")
+        except Exception as e:
+            self.log.warning("[vlm-driven] 抓帧失败: %s", e)
+            return None
+
+    def _start_action(self, fn: str) -> bool:
+        """启动一个机器人动作。VLM-driven 模式下只启动，不在这里做 yes/no 完成判断。"""
+        api_map = {
+            "run_pick_bag": "/api/pick_bag",
+            "run_bag_large_items": "/api/bag_large_items",
+            "run_sweep_trash": "/api/sweep_trash",
+        }
+        if fn == "run_replay_towel":
+            rc = self.cfg["replay"]
+            body = {
+                "parquet_path": rc["parquet_path"],
+                "fps": rc["fps"],
+                "speed": rc["speed"],
+                "step": rc["step"],
+            }
+            self.client_galbot.post("/api/replay_downsample", body=body)
+            self.current_action = fn
+            return True
+        api_path = api_map.get(fn)
+        if not api_path:
+            return False
+        self.client_galbot.post(api_path)
+        self.current_action = fn
+        return True
+
+    def _stop_current_action(self):
+        """停止当前动作。Replay 如果已自然结束，stop 调用也安全。"""
+        try:
+            self.client_galbot.stop()
+        finally:
+            self.current_action = None
+
+    def _build_content(self, b64: str) -> list:
+        """根据 vlm_driven_config.yaml 构造发给 VLM 的 content 列表。"""
+        captions = self.vd_cfg.get("example_captions", {})
+        completion_rules = self.vd_cfg.get("completion_rules", {})
+        current_frame_caption = self.vd_cfg.get("current_frame_caption", "Image 4: CURRENT camera view.")
+        decision_rules_tpl = self.vd_cfg.get("decision_rules", "")
+
+        # 把 completion_rules 内容拼进 decision_rules 前面
+        rules_block = ""
+        for step_key in ("pick_bag", "bag_large_items", "replay_towel", "sweep_trash"):
+            rule = completion_rules.get(step_key, "")
+            if rule:
+                rules_block += f"\n{rule.strip()}\n"
+
+        decision_text = (rules_block.strip() + "\n\n" + decision_rules_tpl).format(
+            current_action=self.current_action or "none"
+        )
+
+        content = []
+
+        # Image 1: pick_bag example
+        if self.example_imgs.get("pick_bag"):
+            content += [
+                {"type": "text", "text": captions.get("pick_bag", "Image 1: completed example of pick_bag.").strip()},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.example_imgs["pick_bag"]}},
+            ]
+
+        # Image 2: bag_large_items example
+        if self.example_imgs.get("bag_large_items"):
+            content += [
+                {"type": "text", "text": captions.get("bag_large_items", "Image 2: completed example of bag_large_items.").strip()},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.example_imgs["bag_large_items"]}},
+            ]
+
+        # Image 3: sweep_trash / final clean example
+        if self.example_imgs.get("sweep_trash"):
+            content += [
+                {"type": "text", "text": captions.get("sweep_trash", "Image 3: completed example of the final cleaned state.").strip()},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + self.example_imgs["sweep_trash"]}},
+            ]
+
+        # Image 4: current camera frame
+        content += [
+            {"type": "text", "text": current_frame_caption.strip()},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}},
+            {"type": "text", "text": decision_text.strip()},
+        ]
+
+        return content
+
+    def _decide_sync(self, b64: str) -> str:
+        """同步调用 VLM function calling，返回 function name。失败时重试，重试耗尽返回 continue_current_action。"""
+        from openai import OpenAI
+
+        vlm_client = OpenAI(
+            api_key=self.vlm_cfg["api_key"],
+            base_url=self.vlm_cfg["api_base"],
+        )
+        system_prompt = self.vd_cfg.get("system_prompt", self.SYSTEM_PROMPT).strip()
+        content = self._build_content(b64)
+
+        last_err = None
+        for attempt in range(1, self.api_retries + 2):
+            try:
+                self.log.info("[vlm-driven] 请求 VLM function calling 决策 (attempt %d)...", attempt)
+                resp = vlm_client.chat.completions.create(
+                    model=self.vlm_cfg["model"],
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": content},
+                    ],
+                    tools=self.TOOLS,
+                    tool_choice="required",
+                    max_tokens=64,
+                    temperature=0.0,
+                    extra_body={"enable_thinking": False},
+                )
+                msg = resp.choices[0].message
+                if msg.tool_calls:
+                    tool_call = msg.tool_calls[0]
+                    fn = tool_call.function.name
+                    args = tool_call.function.arguments or "{}"
+                    self.log.info(
+                        "[vlm-driven] tool_call: id=%s name=%s arguments=%s",
+                        getattr(tool_call, "id", ""),
+                        fn,
+                        args,
+                    )
+                    return fn
+                self.log.warning("[vlm-driven] 模型未返回 tool_calls，content=%s", msg.content)
+                return "continue_current_action"
+            except Exception as e:
+                last_err = e
+                self.log.warning("[vlm-driven] VLM 调用失败 (attempt %d): %s", attempt, e)
+                if attempt <= self.api_retries:
+                    time.sleep(self.api_retry_sleep)
+
+        self.log.warning("[vlm-driven] 全部重试失败，本轮跳过: %s", last_err)
+        return "continue_current_action"
+
+    def _decide(self, b64: str) -> str:
+        """异步调用 VLM 决策，带 timeout。超时或失败返回 continue_current_action，避免中断任务。"""
+        future = self.executor.submit(self._decide_sync, b64)
+        try:
+            return future.result(timeout=self.decision_timeout)
+        except TimeoutError:
+            self.log.warning("[vlm-driven] VLM 决策超时 %.1fs，本轮跳过", self.decision_timeout)
+            return "continue_current_action"
+        except Exception as e:
+            self.log.warning("[vlm-driven] VLM 异步决策异常，本轮跳过: %s", e)
+            return "continue_current_action"
+
+    def run(self):
+        self.log.info("=" * 60)
+        self.log.info("VLM function calling 驱动模式启动，最多 %d 轮", self.max_rounds)
+        self.log.info("=" * 60)
+        t0 = time.time()
+
+        for round_i in range(1, self.max_rounds + 1):
+            self.log.info("[round %d] 抓取当前帧...", round_i)
+            time.sleep(self.poll_interval)
+            b64 = self._snapshot_b64()
+            if b64 is None:
+                self.log.warning("[round %d] 抓帧失败，跳过", round_i)
+                continue
+
+            fn = self._decide(b64)
+
+            if fn == "task_completed":
+                self.log.info("VLM 判断任务全部完成，总耗时 %.1fs", time.time() - t0)
+                return True
+
+            if fn == "task_failed":
+                self.log.error("VLM 判断任务失败，总耗时 %.1fs", time.time() - t0)
+                return False
+
+            if fn == "continue_current_action":
+                self.log.info("[round %d] tool_result: name=continue_current_action success=True message=no-op, wait for next observation", round_i)
+                continue
+
+            if fn == "stop_current_action":
+                self.log.info("[round %d] 执行 tool function: stop_current_action", round_i)
+                self._stop_current_action()
+                self.log.info("[round %d] tool_result: name=stop_current_action success=True message=current action stopped", round_i)
+                continue
+
+            if fn.startswith("run_"):
+                if self.current_action:
+                    self.log.info("[round %d] 当前动作 %s 仍在运行，先 stop 再启动 %s", round_i, self.current_action, fn)
+                    self._stop_current_action()
+                self.log.info("[round %d] 执行 tool function: %s", round_i, fn)
+                try:
+                    ok = self._start_action(fn)
+                except Exception as e:
+                    self.log.error("[round %d] %s 启动失败: %s", round_i, fn, e)
+                    return False
+                self.log.info(
+                    "[round %d] tool_result: name=%s success=%s message=started current_action=%s",
+                    round_i,
+                    fn,
+                    ok,
+                    self.current_action,
+                )
+                if not ok:
+                    self.log.error("[round %d] 未知或无法启动 function: %s", round_i, fn)
+                    return False
+                continue
+
+            self.log.error("[round %d] 未知 function: %s", round_i, fn)
+            return False
+
+        self.log.warning("超过最大轮数 %d，任务未完成", self.max_rounds)
+        return False
 # ---------------------------------------------------------------------------
 # CLI 入口
 # ---------------------------------------------------------------------------
@@ -361,13 +746,25 @@ class TableClearOrchestrator:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Galbot-1 清理桌面长程任务编排器")
     ap.add_argument("--config", default=_DEFAULT_CONFIG, help="配置文件路径")
+    ap.add_argument(
+        "--mode",
+        choices=["fixed", "vlm"],
+        default="fixed",
+        help="fixed=固定四步顺序（默认），vlm=VLM function calling 动态调度",
+    )
     ap.add_argument("--start-step", type=int, default=1, metavar="N",
-                    help="从第 N 步开始（断点续跑，默认 1）")
+                    help="从第 N 步开始（fixed 模式有效）")
     ap.add_argument("--only-step", type=int, default=None, metavar="N",
-                    help="只执行第 N 步（调试用）")
+                    help="只执行第 N 步（fixed 模式有效）")
     args = ap.parse_args()
 
     cfg = _load_config(args.config)
-    orchestrator = TableClearOrchestrator(cfg)
-    ok = orchestrator.run(start_step=args.start_step, only_step=args.only_step)
+
+    if args.mode == "vlm":
+        orchestrator = VLMDrivenOrchestrator(cfg)
+        ok = orchestrator.run()
+    else:
+        orchestrator = TableClearOrchestrator(cfg)
+        ok = orchestrator.run(start_step=args.start_step, only_step=args.only_step)
+
     sys.exit(0 if ok else 1)
