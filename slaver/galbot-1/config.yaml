@@ -43,37 +43,43 @@ vlm:
   # 每一步任务完成判断的 prompt
   completion_prompts:
     pick_bag: >
-      You are checking whether STEP 1 of a robot table-cleaning task is finished.
-      Look only at the current image. Answer "yes" only if a trash bag is clearly visible
-      on the RIGHT side of the table surface and is no longer on the floor. The bag should
-      be upright or laid on the table, not held by the robot. If the bag is still on the
-      floor, still in the robot hand, only partially on the table, not on the right side,
-      occluded, or you are uncertain, answer "no".
+      You are given TWO images. The FIRST image is a reference example showing the
+      successfully completed state of this step. The SECOND image is the current camera
+      view from the robot. Compare the second image to the first and judge whether the
+      current state matches the completed state.
+      Answer "yes" only if a trash bag is clearly visible on the RIGHT side of the table
+      surface in the SECOND image and is no longer on the floor. The bag should be upright
+      or laid on the table, not held by the robot. If the bag is still on the floor, still
+      in the robot hand, only partially on the table, not on the right side, occluded, or
+      you are uncertain, answer "no".
       Output exactly one word: yes or no.
     bag_large_items: >
-      You are checking whether STEP 2 of a robot table-cleaning task is finished.
-      Look only at the current image. The robot should have placed loose trash items from
-      the table into the trash bag. These items may include any combination of: bottles,
-      cans, milk cartons, snack bags, white paper balls, and other miscellaneous trash.
-      Not all items are always present — only judge based on what you can actually see.
-      Answer "yes" only if no obvious loose trash remains on the table surface.
+      You are given TWO images. The FIRST image is a reference example showing the
+      successfully completed state of this step. The SECOND image is the current camera
+      view from the robot. Compare the second image to the first and judge whether the
+      current state matches the completed state.
+      Answer "yes" only if no obvious loose trash remains on the table surface in the
+      SECOND image. Loose trash may include any combination of: bottles, cans, milk
+      cartons, snack bags, white paper balls, and other miscellaneous trash. Not all
+      items are always present — only judge based on what you can actually see.
       The white takeout box containing red lobster shells MUST still remain on the table
-      at this step and must NOT be inside the trash bag yet. The red lobster shells and
-      residue inside the white box should also still be visible on the table.
+      in the SECOND image and must NOT be inside the trash bag yet.
       If any obvious loose trash is still on the table, if the white lobster box has
       already been bagged, if the scene is occluded, or if you are uncertain, answer "no".
       Output exactly one word: yes or no.
     sweep_trash: >
-      You are checking whether STEP 4, the final step of a robot table-cleaning task,
-      is finished. Look only at the current image. Answer "yes" only if BOTH of the
-      following are clearly visible: (1) the white takeout box is no longer on the table
-      surface — it has been placed into the trash bag on the right side of the table,
-      (2) the table surface appears mostly clean with no visible red lobster shell
-      fragments or residue remaining. Do not require seeing inside the bag. If the white
-      box is still on the table, if red lobster debris is still visible on the table, if
-      the scene is occluded, or if you are uncertain, answer "no".
+      You are given TWO images. The FIRST image is a reference example showing the
+      successfully completed state of this step. The SECOND image is the current camera
+      view from the robot. Compare the second image to the first and judge whether the
+      current state matches the completed state.
+      Answer "yes" only if BOTH of the following are true in the SECOND image:
+      (1) the white takeout box is no longer on the table surface — it has been placed
+      into the trash bag on the right side of the table, (2) the table surface appears
+      mostly clean with no visible red lobster shell fragments or residue remaining.
+      Do not require seeing inside the bag. If the white box is still on the table, if
+      red lobster debris is still visible on the table, if the scene is occluded, or if
+      you are uncertain, answer "no".
       Output exactly one word: yes or no.
-
 
 # Redis 协作器（与 RoboOS master 通信用）
 collaborator:
