@@ -12,14 +12,15 @@ echo.
 :: RoboOS 项目根目录
 set ROBOOS_DIR=%~dp0
 
-:: Conda 环境名
-set CONDA_ENV=roboos2
-
-:: Python 解释器（使用 conda run 激活环境）
-set PYTHON=conda run -n %CONDA_ENV% python
+:: Python 解释器（如果用 conda，改成 conda run -n 你的环境名 python）
+set PYTHON=python
 
 :: Redis 启动方式（已在 PATH 中则直接用，否则填绝对路径）
 set REDIS=redis-server
+
+:: conda 环境名（如果用 conda 管理环境，取消下面两行注释并填写）
+:: set CONDA_ENV=roboos
+:: set PYTHON=conda run -n %CONDA_ENV% python
 :: ─────────────────────────────────────────────────────────────────
 
 echo [1/4] 启动 Redis...

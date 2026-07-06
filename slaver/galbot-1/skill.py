@@ -101,25 +101,35 @@ def _fetch_snapshot_b64() -> Optional[str]:
 # VLM 完成判断
 # ---------------------------------------------------------------------------
 
-def _vlm_check_done(b64_image: str, prompt: str) -> bool:
+def _vlm_check_done(b64_image: str, prompt: str, step_key: str = None) -> bool:
     """调用 VLM 判断当前帧任务是否完成，只有回答 yes 才返回 True。"""
     from openai import OpenAI
     client = OpenAI(api_key=_VLM["api_key"], base_url=_VLM["api_base"])
     try:
+        content = []
+        if step_key:
+            img_dir = os.path.join(os.path.dirname(__file__), "img")
+            img_path = os.path.join(img_dir, f"{step_key}.png")
+            try:
+                with open(img_path, "rb") as f:
+                    ex_b64 = base64.b64encode(f.read()).decode("utf-8")
+                content += [
+                    {"type": "text", "text": "Here is an example image showing the COMPLETED state of this step for your reference:"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + ex_b64}},
+                {"type": "text", "text": "Now look at the current camera image and answer the question below:"},
+                ]
+            except Exception as e:
+                log.warning("[vlm] 示例图加载失败 %s: %s", step_key, e)
+        content += [
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64_image}},
+            {"type": "text", "text": prompt},
+        ]
         resp = client.chat.completions.create(
             model=_VLM["model"],
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": "data:image/jpeg;base64," + b64_image},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }],
+            messages=[{"role": "user", "content": content}],
             max_tokens=16,
             temperature=0.0,
+            extra_body={"enable_thinking": False},
         )
         answer = resp.choices[0].message.content.strip().lower()
         log.info("[vlm] 判断结果: '%s'", answer)
@@ -150,8 +160,12 @@ def _poll_until_done(step_key: str) -> str:
         if b64 is None:
             log.warning("[%s] 第 %d 次：抓帧失败，跳过", step_key, i)
             continue
-        if _vlm_check_done(b64, prompt):
-            log.info("[%s] VLM 判断完成（第 %d 次），调用 stop", step_key, i)
+        if _vlm_check_done(b64, prompt, step_key=step_key):
+            log.info("[%s] VLM 判断完成（第 %d 次）", step_key, i)
+            delay = float(_VLM.get("post_done_sleep", {}).get(step_key, 0.))
+            if delay > 0:
+                log.info("[%s] 等待 %.1fs 后再 stop ..", step_key, delay)
+                time.sleep(delay)
             try:
                 _galbot_post("/api/stop")
             except Exception as e:

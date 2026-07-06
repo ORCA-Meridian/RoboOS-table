@@ -126,7 +126,30 @@ class VLMJudge:
         self.poll_interval = float(vlm["poll_interval"])
         self.max_polls = int(vlm["max_polls"])
         self.prompts = vlm["completion_prompts"]
+        self.post_done_sleep = vlm.get("post_done_sleep", {})
         self.log = log
+        self.example_imgs = self._load_example_images()
+
+    def _load_example_images(self) -> dict:
+        """预加载三个任务的成功示例图（base64），启动时读一次，避免重复 IO。"""
+        img_dir = os.path.join(os.path.dirname(__file__), "img")
+        mapping = {
+            "pick_bag":        "pick_bag.png",
+            "bag_large_items": "bag_large_items.png",
+            "sweep_trash":     "sweep_trash.png",
+        }
+        result = {}
+        for key, fname in mapping.items():
+            path = os.path.join(img_dir, fname)
+            try:
+                with open(path, "rb") as f:
+                    result[key] = base64.b64encode(f.read()).decode("utf-8")
+                self.log.info("[vlm] 示例图加载成功: %s", fname)
+            except Exception as e:
+                self.log.warning("[vlm] 示例图加载失败 %s: %s", fname, e)
+                result[key] = None
+        return result
+
 
     def _snapshot_b64(self):
         import requests, base64
@@ -138,22 +161,28 @@ class VLMJudge:
             self.log.warning("[vlm] 抓帧失败: %s", e)
             return None
 
-    def _ask(self, b64, prompt):
+    def _ask(self, b64, prompt, step_key=None):
         from openai import OpenAI
         client = OpenAI(api_key=self.api_key, base_url=self.api_base)
         try:
+            content = []
+            example_b64 = self.example_imgs.get(step_key) if step_key else None
+            if example_b64:
+                content += [
+                    {"type": "text", "text": "Here is an example image showing the COMPLETED state of this step for your reference:"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + example_b64}},
+                    {"type": "text", "text": "Now look at the current camera image and answer the question below:"},
+                ]
+            content += [
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}},
+                {"type": "text", "text": prompt},
+            ]
             resp = client.chat.completions.create(
                 model=self.model,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url",
-                         "image_url": {"url": "data:image/jpeg;base64," + b64}},
-                        {"type": "text", "text": prompt},
-                    ],
-                }],
+                messages=[{"role": "user", "content": content}],
                 max_tokens=16,
                 temperature=0.0,
+                extra_body={"enable_thinking": False},
             )
             answer = resp.choices[0].message.content.strip().lower()
             self.log.info("[vlm] 回答: '%s'", answer)
@@ -174,8 +203,12 @@ class VLMJudge:
             if b64 is None:
                 self.log.warning("[%s] 第 %d 次：抓帧失败，跳过", step_key, i)
                 continue
-            if self._ask(b64, prompt):
+            if self._ask(b64, prompt, step_key=step_key):
                 self.log.info("[%s] 第 %d 次：VLM 判断完成", step_key, i)
+                delay = float(self.post_done_sleep.get(step_key, 0.0))
+                if delay > 0:
+                    self.log.info("[%s] 等待 %.1fs 后结束轮询 ...", step_key, delay)
+                    time.sleep(delay)
                 return True, i
             self.log.info("[%s] 第 %d/%d 次：未完成", step_key, i, self.max_polls)
         self.log.warning("[%s] 超过最大轮询次数，视为超时", step_key)
