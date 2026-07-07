@@ -5,8 +5,8 @@
 **1. 创建 conda 环境**
 
 ```bash
-conda create -n roboos2 python=3.10-y
-conda activate roboos2
+conda create -n roboos python=3.10-y
+conda activate roboos
 ```
 
 **2. 克隆代码**
@@ -97,9 +97,6 @@ python task_orchestrator.py
 # 从第 N 步开始（断点续跑）
 python task_orchestrator.py --start-step 2
 
-# 只跑第 N 步（调试单步）
-python task_orchestrator.py --only-step 3
-
 # 指定配置文件
 python task_orchestrator.py --config config.yaml
 ```
@@ -151,15 +148,3 @@ vlm_driven:
 
 ---
 
-### 常见参数速查
-
-| 参数 | 文件 | 说明 |
-|------|------|
-| `galbot_server.host` | `config.yaml` | 机器人 IP |
-| `vlm.api_key` | `config.yaml` | VLM API Key |
-| `vlm.model` | `config.yaml` | 使用的视觉模型名 |
-| `vlm.post_done_sleep.pick_bag` | `config.yaml` | 固定模式 pick_bag 完成后延迟停止秒数 |
-| `vlm_driven.stop_delays.run_pick_bag` | `vlm_driven_config.yaml` | VLM 模式 stop 后延迟停止秒数 |
-| `vlm_driven.max_rounds` | `vlm_driven_config.yaml` | VLM 模式最大决策轮数 |
-| `replay.parquet_path` | `config.yaml` | 毛巾轨迹 parquet 文件路径 |
-```
