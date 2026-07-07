@@ -560,8 +560,13 @@ class VLMDrivenOrchestrator:
         return True
 
     def _stop_current_action(self):
-        """停止当前动作。Replay 如果已自然结束，stop 调用也安全。"""
+        """停止当前动作。如果该动作在 vlm_driven_config.yaml 配置了 stop_delays，先等待再发 stop。"""
+        action = self.current_action
         try:
+            delay = float(self.vd_cfg.get("stop_delays", {}).get(action or "", 0.0))
+            if delay > 0:
+                self.log.info("[vlm-driven] stop_current_action: 等待 %.1fs 后停止 %s ...", delay, action)
+                time.sleep(delay)
             self.client_galbot.stop()
         finally:
             self.current_action = None

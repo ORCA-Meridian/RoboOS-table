@@ -9,6 +9,14 @@ vlm_driven:
   api_retries: 2
   api_retry_sleep: 2.0
 
+  # 调用 stop_current_action 后、实际发送 stop 指令前的额外等待时间（秒）
+  # pick_bag 需要等机器人降回正常高度再停
+  stop_delays:
+    run_pick_bag: 10.0
+    run_bag_large_items: 0.0
+    run_replay_towel: 0.0
+    run_sweep_trash: 0.0
+
   # System prompt：告诉模型它是谁、任务流程、决策规则
   system_prompt: >
     You are a robot task controller for a table-cleaning task.
@@ -55,6 +63,11 @@ vlm_driven:
   # 决策规则（追加在最后一条 user message 中）
   decision_rules: >
     Current running action: {current_action}
+
+    Important timing note: when stop_current_action is called for run_pick_bag,
+    the robot will wait 10 seconds before actually stopping to allow the arm to lower.
+    Do NOT call stop_current_action for pick_bag unless the goal is clearly achieved —
+    the 10s delay is intentional and handled automatically.
 
     Based on Image 4, decide the next robot action by calling exactly one function:
 
