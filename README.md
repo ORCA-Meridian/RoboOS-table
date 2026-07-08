@@ -103,11 +103,28 @@ python task_orchestrator.py --config config.yaml
 
 #### VLM Function Calling 模式（动态调度）
 
-每轮拍当前相机图 + 三张示例图，由 VLM 通过 function call 决定下一步调用哪个函数。支持 `continue_current_action` / `stop_current_action` 闭环控制。
+每轮拍当前相机图 + 三张示例图（分别对应 Step 1/2/4 完成状态），由 VLM 通过 function call 决定当前该启动哪个动作、继续等待还是停止。支持 `continue_current_action` / `stop_current_action` 闭环控制，鲁棒性更强但速度略慢。
 
 ```bash
+# 启动 VLM function calling 模式
 python task_orchestrator.py --mode vlm
+
+# 可配合 --config 指定配置文件
+python task_orchestrator.py --mode vlm --config config.yaml
 ```
+
+> 提示词和决策参数在 `vlm_driven_config.yaml` 中配置，判断行为异常时调整 `system_prompt` / `completion_rules` / `decision_rules`。
+
+**两种模式对比**
+
+| | 固定顺序模式 | VLM Function Calling 模式 |
+|---|---|---|
+| 任务调度 | 代码写死 1→2→3→4 | VLM 每轮决定下一步 |
+| VLM 职责 | 只判断当前步骤完成与否（yes/no） | 判断当前状态并决定调用哪个函数 |
+| 每次发图数 | 2 张（1 示例 + 当前帧） | 4 张（3 示例 + 当前帧） |
+| 速度 | 快 | 略慢 |
+| 容错性 | 步骤失败直接终止 | VLM 可重调同一步骤 |
+| 推荐场景 | 日常使用 | 需要更强鲁棒性时 |
 
 ---
 

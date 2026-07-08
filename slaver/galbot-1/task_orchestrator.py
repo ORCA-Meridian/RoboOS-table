@@ -27,8 +27,8 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
-from typing import Callable, List, Optional
-
+from typing import Callable
+from openai import OpenAI
 import requests
 import yaml
 
@@ -157,7 +157,6 @@ class VLMJudge:
 
 
     def _snapshot_b64(self):
-        import requests, base64
         try:
             r = requests.get(self.snapshot_url, timeout=5)
             r.raise_for_status()
@@ -167,7 +166,6 @@ class VLMJudge:
             return None
 
     def _ask(self, b64, prompt, step_key=None):
-        from openai import OpenAI
         client = OpenAI(api_key=self.api_key, base_url=self.api_base)
         try:
             content = []
@@ -224,8 +222,6 @@ class VLMJudge:
 # 步骤数据结构
 # ---------------------------------------------------------------------------
 
-from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass
@@ -623,7 +619,6 @@ class VLMDrivenOrchestrator:
 
     def _decide_sync(self, b64: str) -> str:
         """同步调用 VLM function calling，返回 function name。失败时重试，重试耗尽返回 continue_current_action。"""
-        from openai import OpenAI
 
         vlm_client = OpenAI(
             api_key=self.vlm_cfg["api_key"],
