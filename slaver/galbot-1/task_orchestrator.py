@@ -261,10 +261,16 @@ class TableClearOrchestrator:
         self.log.info("=" * 50)
         self.log.info("Step %d / %s", step_id, name)
         self.log.info("=" * 50)
-        try:
-            self.client.post(api_path)
-        except Exception as e:
-            return StepResult(step_id, name, False, "启动失败: " + str(e), time.time() - t0)
+        start_retries = 3
+        for attempt in range(1, start_retries + 1):
+            try:
+                self.client.post(api_path)
+                break
+            except Exception as e:
+                self.log.warning("[%s] 启动失败 attempt %d/%d: %s", name, attempt, start_retries, e)
+                if attempt == start_retries:
+                    return StepResult(step_id, name, False, "启动失败: " + str(e), time.time() - t0)
+                time.sleep(2.0)
         if pre_sleep > 0:
             self.log.info("[%s] 等待初始化 %.1fs ...", name, pre_sleep)
             time.sleep(pre_sleep)
@@ -683,62 +689,63 @@ class VLMDrivenOrchestrator:
         self.log.info("VLM function calling 驱动模式启动，最多 %d 轮", self.max_rounds)
         self.log.info("=" * 60)
         t0 = time.time()
+        try:
+            for round_i in range(1, self.max_rounds + 1):
+                self.log.info("[round %d] 抓取当前帧...", round_i)
+                time.sleep(self.poll_interval)
+                b64 = self._snapshot_b64()
+                if b64 is None:
+                    self.log.warning("[round %d] 抓帧失败，跳过", round_i)
+                    continue
 
-        for round_i in range(1, self.max_rounds + 1):
-            self.log.info("[round %d] 抓取当前帧...", round_i)
-            time.sleep(self.poll_interval)
-            b64 = self._snapshot_b64()
-            if b64 is None:
-                self.log.warning("[round %d] 抓帧失败，跳过", round_i)
-                continue
+                fn = self._decide(b64)
 
-            fn = self._decide(b64)
+                if fn == "task_completed":
+                    self.log.info("VLM 判断任务全部完成，总耗时 %.1fs", time.time() - t0)
+                    return True
 
-            if fn == "task_completed":
-                self.log.info("VLM 判断任务全部完成，总耗时 %.1fs", time.time() - t0)
-                return True
+                if fn == "task_failed":
+                    self.log.error("VLM 判断任务失败，总耗时 %.1fs", time.time() - t0)
+                    return False
 
-            if fn == "task_failed":
-                self.log.error("VLM 判断任务失败，总耗时 %.1fs", time.time() - t0)
-                return False
+                if fn == "continue_current_action":
+                    self.log.info("[round %d] tool_result: name=continue_current_action success=True message=no-op, wait for next observation", round_i)
+                    continue
 
-            if fn == "continue_current_action":
-                self.log.info("[round %d] tool_result: name=continue_current_action success=True message=no-op, wait for next observation", round_i)
-                continue
-
-            if fn == "stop_current_action":
-                self.log.info("[round %d] 执行 tool function: stop_current_action", round_i)
-                self._stop_current_action()
-                self.log.info("[round %d] tool_result: name=stop_current_action success=True message=current action stopped", round_i)
-                continue
-
-            if fn.startswith("run_"):
-                if self.current_action:
-                    self.log.info("[round %d] 当前动作 %s 仍在运行，先 stop 再启动 %s", round_i, self.current_action, fn)
+                if fn == "stop_current_action":
+                    self.log.info("[round %d] 执行 tool function: stop_current_action", round_i)
                     self._stop_current_action()
-                self.log.info("[round %d] 执行 tool function: %s", round_i, fn)
-                try:
-                    ok = self._start_action(fn)
-                except Exception as e:
-                    self.log.error("[round %d] %s 启动失败: %s", round_i, fn, e)
-                    return False
-                self.log.info(
-                    "[round %d] tool_result: name=%s success=%s message=started current_action=%s",
-                    round_i,
-                    fn,
-                    ok,
-                    self.current_action,
-                )
-                if not ok:
-                    self.log.error("[round %d] 未知或无法启动 function: %s", round_i, fn)
-                    return False
-                continue
+                    self.log.info("[round %d] tool_result: name=stop_current_action success=True message=current action stopped", round_i)
+                    continue
 
-            self.log.error("[round %d] 未知 function: %s", round_i, fn)
+                if fn.startswith("run_"):
+                    if self.current_action:
+                        self.log.info("[round %d] 当前动作 %s 仍在运行，先 stop 再启动 %s", round_i, self.current_action, fn)
+                        self._stop_current_action()
+                    self.log.info("[round %d] 执行 tool function: %s", round_i, fn)
+                    try:
+                        ok = self._start_action(fn)
+                    except Exception as e:
+                        self.log.error("[round %d] %s 启动失败: %s", round_i, fn, e)
+                        return False
+                    self.log.info(
+                        "[round %d] tool_result: name=%s success=%s message=started current_action=%s",
+                        round_i,
+                        fn,
+                        ok,
+                        self.current_action,
+                    )
+                    if not ok:
+                        self.log.error("[round %d] 未知或无法启动 function: %s", round_i, fn)
+                        return False
+                    continue
+
+                self.log.error("[round %d] 未知 function: %s", round_i, fn)
+                return False
+            self.log.warning("超过最大轮数 %d，任务未完成", self.max_rounds)
             return False
-
-        self.log.warning("超过最大轮数 %d，任务未完成", self.max_rounds)
-        return False
+        finally:
+            self.executor.shutdown(wait=False)
 # ---------------------------------------------------------------------------
 # CLI 入口
 # ---------------------------------------------------------------------------

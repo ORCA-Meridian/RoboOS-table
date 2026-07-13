@@ -5,7 +5,7 @@
 **1. 创建 conda 环境**
 
 ```bash
-conda create -n roboos python=3.10-y
+conda create -n roboos python=3.10 -y
 conda activate roboos
 ```
 

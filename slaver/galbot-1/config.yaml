@@ -5,7 +5,7 @@
 
 # Galbot 机器人本机 HTTP 服务（robot_server_clear_table.py 暴露的接口）
 galbot_server:
-  host: "172.16.20.48"       # 机器人 IP，按实际修改
+  host: "172.16.20.235"       # 机器人 IP，按实际修改
   port: 9052
   timeout: 10                 # HTTP 请求超时（秒）
   task_poll_interval: 2.0     # 轮询 /api/status 的间隔（秒）
@@ -13,7 +13,7 @@ galbot_server:
 
 # 相机服务（camera_viewer_1.py 暴露的接口）
 camera_server:
-  host: "172.16.20.48"       # 与机器人同一台机器
+  host: "172.16.20.235"       # 与机器人同一台机器
   port: 8080
   snapshot_path: "/snapshot/head"
 
