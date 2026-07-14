@@ -6,9 +6,13 @@ import base64
 import httpx
 from openai import OpenAI
 
-API_KEY  = "sk-24c26577d05b4b0598acace7c666aadc"
-API_BASE = "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-MODEL    = "qwen3.7-plus"
+# API_KEY  = "sk-24c26577d05b4b0598acace7c666aadc"
+# API_BASE = "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+# MODEL    = "qwen3.7-plus"
+
+API_KEY  = "sk-wsCXaesxBcVxIBaEC79f3aD05fC24560941261D5CeE420Da"
+API_BASE = "https://aihubmix.com/v1"
+MODEL    = "gpt-4o"
 
 client = OpenAI(api_key=API_KEY, base_url=API_BASE)
 
@@ -19,9 +23,11 @@ try:
     resp = client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": "回复 OK"}],
-        max_tokens=10,
+        # max_tokens=100,
     )
-    print("✅ 成功:", resp.choices[0].message.content.strip())
+    print("✅ 成功:", repr(resp.choices[0].message.content))
+    # print("完整 message:", resp.choices[0].message)
+    # print("usage:", resp.usage)
 except Exception as e:
     print("❌ 失败:", e)
 
@@ -48,10 +54,12 @@ try:
                 {"type": "text", "text": "这张图里是什么。"},
             ],
         }],
-        max_tokens=20,
+        # max_tokens=300,
         temperature=0.0,
     )
-    print("✅ 成功:", resp.choices[0].message.content.strip())
+    print("✅ 成功:", repr(resp.choices[0].message.content))
+    # print("完整 message:", resp.choices[0].message)
+    # print("usage:", resp.usage)
 except Exception as e:
     print("❌ 失败:", e)
     print()

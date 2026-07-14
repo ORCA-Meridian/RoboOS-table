@@ -140,15 +140,27 @@ camera_server:
   host: "172.16.20.48"      # ← 机器人实际 IP
 
 vlm:
-  api_key: "sk-xxx"         # ← 支持视觉输入的 API Key
-  api_base: "https://..."   # ← 模型服务端点
-  model: "qwen3.7-plus"     # ← 支持图像输入的模型名
+  # 默认使用百炼 Qwen；一次仅保留一个 provider 的有效配置。
+  provider: "openai_compatible"
+  api_key: "sk-xxx"
+  api_base: "https://.../compatible-mode/v1"
+  model: "qwen3.7-plus"
+  enable_thinking: false     # 仅 openai_compatible 服务会发送该扩展参数
+
+  # 切换官方 OpenAI 时，注释上方 Qwen 的 provider/api_key/api_base/model/
+  # enable_thinking，并取消下方四行注释；启动命令不变。
+  # provider: "openai"
+  # api_key: "sk-xxx"
+  # api_base: "https://api.openai.com/v1"
+  # model: "gpt-4o"
   post_done_sleep:
     pick_bag: 10.0          # ← 固定模式：VLM 判断完成后等待机器人降回高度的秒数
 
 replay:
   parquet_path: "/home/galbot/vla_client/拿毛巾.parquet"  # ← 毛巾轨迹文件路径
 ```
+
+> `vlm.provider` 一次只启用一个服务商。当前默认是 `openai_compatible`（百炼 Qwen）；如需官方 OpenAI，按上方注释切换为 `openai`，两种模式的启动命令都不需要修改。
 
 #### `vlm_driven_config.yaml`（仅 `--mode vlm` 需要）
 

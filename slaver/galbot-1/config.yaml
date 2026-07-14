@@ -5,7 +5,7 @@
 
 # Galbot 机器人本机 HTTP 服务（robot_server_clear_table.py 暴露的接口）
 galbot_server:
-  host: "172.16.20.235"       # 机器人 IP，按实际修改
+  host: "172.16.20.69"       # 机器人 IP，按实际修改
   port: 9052
   timeout: 10                 # HTTP 请求超时（秒）
   task_poll_interval: 2.0     # 轮询 /api/status 的间隔（秒）
@@ -13,7 +13,7 @@ galbot_server:
 
 # 相机服务（camera_viewer_1.py 暴露的接口）
 camera_server:
-  host: "172.16.20.235"       # 与机器人同一台机器
+  host: "172.16.20.69"       # 与机器人同一台机器
   port: 8080
   snapshot_path: "/snapshot/head"
 
@@ -31,11 +31,20 @@ replay:
 # 注意: 普通 deepseek-chat 不支持图像，这里必须用 vision 模型
 
 vlm:
-  # api_key: "sk-24c26577d05b4b0598acace7c666aadc"
-  api_key: "sk-ws-H.EMDDREI.9OZh.MEYCIQDanyGcUWBxIwZ2KqA_a-RP_E8e30bshSL5sDuzCiVpEAIhAOn9o97-PbRWQyXWK9by2XqkT5HQqH-qmmAsbnshFb4W"         # ← 填支持 vision 的 API Key
-  # api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"     # ← OpenAI 或其他支持 vision 的端点
-  api_base: "https://ws-85cjtrvkxmp22ek5.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-  model: "qwen3.7-plus"                       # ← 支持视觉输入的模型名
+  # 一次只启用一种服务商。当前默认：百炼 Qwen 的 OpenAI 兼容接口。
+  provider: "openai_compatible"
+  api_key: "sk-24c26577d05b4b0598acace7c666aadc"
+  api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+  model: "qwen3.7-plus"
+  enable_thinking: false     # 仅 openai_compatible 服务会发送该扩展参数
+
+  # 如需改用官方 OpenAI：注释上方 Qwen 的 provider/api_key/api_base/model/
+  # enable_thinking，并取消下面四行注释。启动命令无需变化。
+  # provider: "openai"
+  # api_key: "sk-wsCXaesxBcVxIBaEC79f3aD05fC24560941261D5CeE420Da"
+  # api_base: "https://aihubmix.com/v1"
+  # model: "gpt-4o"
+  timeout: 120                # VLM 请求超时（秒），发两张图时响应较慢，建议 120
   poll_interval: 3.0
   max_polls: 100              # 最多轮询次数，超过则认为任务超时
   post_done_sleep:

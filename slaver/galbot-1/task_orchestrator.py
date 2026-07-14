@@ -28,9 +28,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
 from typing import Callable
-from openai import OpenAI
 import requests
 import yaml
+
+from clients.camera_client import CameraClient
+from clients.vlm_openai_client import OpenAICompatibleVLMClient
 
 
 _DEFAULT_CONFIG = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -121,13 +123,8 @@ class VLMJudge:
 
     def __init__(self, cfg, log):
         vlm = cfg["vlm"]
-        cam = cfg["camera_server"]
-        self.snapshot_url = "http://{}:{}{}".format(
-            cam["host"], cam["port"], cam["snapshot_path"]
-        )
-        self.api_key = vlm["api_key"]
-        self.api_base = vlm["api_base"]
-        self.model = vlm["model"]
+        self.camera = CameraClient(cfg["camera_server"], log)
+        self.vlm_client = OpenAICompatibleVLMClient(vlm, log)
         self.poll_interval = float(vlm["poll_interval"])
         self.max_polls = int(vlm["max_polls"])
         self.prompts = vlm["completion_prompts"]
@@ -157,16 +154,9 @@ class VLMJudge:
 
 
     def _snapshot_b64(self):
-        try:
-            r = requests.get(self.snapshot_url, timeout=5)
-            r.raise_for_status()
-            return base64.b64encode(r.content).decode("utf-8")
-        except Exception as e:
-            self.log.warning("[vlm] 抓帧失败: %s", e)
-            return None
+        return self.camera.snapshot_b64("vlm")
 
     def _ask(self, b64, prompt, step_key=None):
-        client = OpenAI(api_key=self.api_key, base_url=self.api_base)
         try:
             content = []
             example_b64 = self.example_imgs.get(step_key) if step_key else None
@@ -180,14 +170,7 @@ class VLMJudge:
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}},
                 {"type": "text", "text": prompt},
             ]
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": content}],
-                max_tokens=16,
-                temperature=0.0,
-                extra_body={"enable_thinking": False},
-            )
-            answer = resp.choices[0].message.content.strip().lower()
+            answer = self.vlm_client.judge_completion(content)
             self.log.info("[vlm] 回答: '%s'", answer)
             return answer.startswith("yes")
         except Exception as e:
@@ -493,10 +476,8 @@ class VLMDrivenOrchestrator:
         self.api_retries = int(self.vd_cfg.get("api_retries", 2))
         self.api_retry_sleep = float(self.vd_cfg.get("api_retry_sleep", 2.0))
         self.executor = ThreadPoolExecutor(max_workers=1)
-        cam = cfg["camera_server"]
-        self.snapshot_url = "http://{}:{}{}".format(
-            cam["host"], cam["port"], cam["snapshot_path"]
-        )
+        self.camera = CameraClient(cfg["camera_server"], self.log)
+        self.vlm_client = OpenAICompatibleVLMClient(self.vlm_cfg, self.log)
         self.max_rounds = int(self.vd_cfg.get("max_rounds", 20))
         self.poll_interval = float(self.vlm_cfg["poll_interval"])
         self.example_imgs = self._load_example_images()
@@ -528,13 +509,7 @@ class VLMDrivenOrchestrator:
         return result
 
     def _snapshot_b64(self):
-        try:
-            r = requests.get(self.snapshot_url, timeout=5)
-            r.raise_for_status()
-            return base64.b64encode(r.content).decode("utf-8")
-        except Exception as e:
-            self.log.warning("[vlm-driven] 抓帧失败: %s", e)
-            return None
+        return self.camera.snapshot_b64("vlm-driven")
 
     def _start_action(self, fn: str) -> bool:
         """启动一个机器人动作。VLM-driven 模式下只启动，不在这里做 yes/no 完成判断。"""
@@ -626,10 +601,6 @@ class VLMDrivenOrchestrator:
     def _decide_sync(self, b64: str) -> str:
         """同步调用 VLM function calling，返回 function name。失败时重试，重试耗尽返回 continue_current_action。"""
 
-        vlm_client = OpenAI(
-            api_key=self.vlm_cfg["api_key"],
-            base_url=self.vlm_cfg["api_base"],
-        )
         system_prompt = self.vd_cfg.get("system_prompt", self.SYSTEM_PROMPT).strip()
         content = self._build_content(b64)
 
@@ -637,31 +608,14 @@ class VLMDrivenOrchestrator:
         for attempt in range(1, self.api_retries + 2):
             try:
                 self.log.info("[vlm-driven] 请求 VLM function calling 决策 (attempt %d)...", attempt)
-                resp = vlm_client.chat.completions.create(
-                    model=self.vlm_cfg["model"],
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": content},
-                    ],
+                fn, message_content = self.vlm_client.decide(
+                    system_prompt=system_prompt,
+                    content=content,
                     tools=self.TOOLS,
-                    tool_choice="required",
-                    max_tokens=64,
-                    temperature=0.0,
-                    extra_body={"enable_thinking": False},
                 )
-                msg = resp.choices[0].message
-                if msg.tool_calls:
-                    tool_call = msg.tool_calls[0]
-                    fn = tool_call.function.name
-                    args = tool_call.function.arguments or "{}"
-                    self.log.info(
-                        "[vlm-driven] tool_call: id=%s name=%s arguments=%s",
-                        getattr(tool_call, "id", ""),
-                        fn,
-                        args,
-                    )
+                if fn:
                     return fn
-                self.log.warning("[vlm-driven] 模型未返回 tool_calls，content=%s", msg.content)
+                self.log.warning("[vlm-driven] 模型未返回 tool_calls，content=%s", message_content)
                 return "continue_current_action"
             except Exception as e:
                 last_err = e
@@ -775,3 +729,4 @@ if __name__ == "__main__":
         ok = orchestrator.run(start_step=args.start_step, only_step=args.only_step)
 
     sys.exit(0 if ok else 1)
+
