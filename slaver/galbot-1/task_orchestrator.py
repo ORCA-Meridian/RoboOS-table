@@ -96,6 +96,18 @@ class GalbotClient:
         except Exception as e:
             self.log.warning("[client] stop 失败: %s", e)
 
+    def reset(self, label: str = "reset") -> bool:
+        """调用 /api/reset 触发复位，然后轮询 /api/status 等待复位完成。"""
+        try:
+            self.post("/api/reset")
+            self.log.info("[%s] 复位指令已发送", label)
+        except Exception as e:
+            self.log.warning("[%s] 复位指令发送失败: %s", label, e)
+            return False
+        ok, msg = self.wait_task_finish(label)
+        self.log.info("[%s] 复位结果: success=%s, msg=%s", label, ok, msg)
+        return ok
+
     def wait_task_finish(self, label: str) -> tuple:
         """轮询 /api/status 直到任务结束，返回 (success, message)。"""
         deadline = time.time() + self.max_wait
@@ -168,7 +180,7 @@ class VLMJudge:
                 ]
             content += [
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}},
-                {"type": "text", "text": prompt},
+                {"type": "text", "text": prompt.strip()},
             ]
             answer = self.vlm_client.judge_completion(content)
             self.log.info("[vlm] 回答: '%s'", answer)
@@ -288,10 +300,17 @@ class TableClearOrchestrator:
         except Exception as e:
             return StepResult(3, name, False, "启动失败: " + str(e), time.time() - t0)
         ok, msg = self.client.wait_task_finish(name)
+        if ok:
+            self.log.info("[replay_towel] Replay 完成，开始复位...")
+            self.client.reset("replay_towel_reset")
         return StepResult(3, name, ok, msg, time.time() - t0)
 
     def _run_sweep_trash(self):
-        return self._infer_step(4, "sweep_trash", "/api/sweep_trash")
+        result = self._infer_step(4, "sweep_trash", "/api/sweep_trash")
+        if result.success:
+            self.log.info("[sweep_trash] Step 4 完成，开始复位...")
+            self.client.reset("sweep_trash_reset")
+        return result
 
     def _build_steps(self):
         return [

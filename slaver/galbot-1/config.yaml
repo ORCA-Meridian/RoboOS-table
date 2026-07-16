@@ -5,7 +5,7 @@
 
 # Galbot 机器人本机 HTTP 服务（robot_server_clear_table.py 暴露的接口）
 galbot_server:
-  host: "172.16.20.69"       # 机器人 IP，按实际修改
+  host: "172.16.20.194"       # 机器人 IP，按实际修改
   port: 9052
   timeout: 10                 # HTTP 请求超时（秒）
   task_poll_interval: 2.0     # 轮询 /api/status 的间隔（秒）
@@ -13,7 +13,7 @@ galbot_server:
 
 # 相机服务（camera_viewer_1.py 暴露的接口）
 camera_server:
-  host: "172.16.20.69"       # 与机器人同一台机器
+  host: "172.16.20.194"       # 与机器人同一台机器
   port: 8080
   snapshot_path: "/snapshot/head"
 
@@ -35,7 +35,7 @@ vlm:
   provider: "openai_compatible"
   api_key: "sk-24c26577d05b4b0598acace7c666aadc"
   api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-  model: "qwen3.7-plus"
+  model: "qwen3.7-plus-2026-05-26"
   enable_thinking: false     # 仅 openai_compatible 服务会发送该扩展参数
 
   # 如需改用官方 OpenAI：注释上方 Qwen 的 provider/api_key/api_base/model/
