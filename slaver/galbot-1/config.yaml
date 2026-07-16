@@ -32,11 +32,11 @@ replay:
 
 vlm:
   # 一次只启用一种服务商。当前默认：百炼 Qwen 的 OpenAI 兼容接口。
-  provider: "openai_compatible"
-  api_key: "sk-24c26577d05b4b0598acace7c666aadc"
-  api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-  model: "qwen3.7-plus-2026-05-26"
-  enable_thinking: false     # 仅 openai_compatible 服务会发送该扩展参数
+  # provider: "openai_compatible"
+  # api_key: "sk-24c26577d05b4b0598acace7c666aadc"
+  # api_base: "https://llm-yl7qhh3l03qfmpuk.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+  # model: "qwen3.7-plus-2026-05-26"
+  # enable_thinking: false     
 
   # 如需改用官方 OpenAI：注释上方 Qwen 的 provider/api_key/api_base/model/
   # enable_thinking，并取消下面四行注释。启动命令无需变化。
@@ -44,11 +44,24 @@ vlm:
   # api_key: "sk-wsCXaesxBcVxIBaEC79f3aD05fC24560941261D5CeE420Da"
   # api_base: "https://aihubmix.com/v1"
   # model: "gpt-4o"
+# 
+  provider: "openai"
+  api_key: "sk-uUNSVMMWsEE2sYhcXu0TFk9utyylDKtdIakVaRMGpoYxFwfz"
+  api_base: "https://mydamoxing.cn/v1"
+  model: "qwen3.7-plus"
+
+  # provider: "openai"
+  # api_key: "sk-rSAm4IHY7tVI7pmawpJVlR6nn5j2w43bU19yw8FDZv5RL1TL"
+  # api_base: "https://kuaipao.ai/v1"
+  # model: "qwen3.7-plus"
+
+
+
   timeout: 120                # VLM 请求超时（秒），发两张图时响应较慢，建议 120
   poll_interval: 3.0
   max_polls: 100              # 最多轮询次数，超过则认为任务超时
   post_done_sleep:
-    pick_bag: 10.0        # VLM 判断完成后等待机器人降回正常高度
+    pick_bag: 10.0
     bag_large_items: 0.0
     sweep_trash: 0.0
   # 每一步任务完成判断的 prompt

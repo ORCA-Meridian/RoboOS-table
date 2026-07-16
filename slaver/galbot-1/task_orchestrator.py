@@ -276,7 +276,11 @@ class TableClearOrchestrator:
                           time.time() - t0)
 
     def _run_pick_bag(self):
-        return self._infer_step(1, "pick_bag", "/api/pick_bag", pre_sleep=3.0)
+        result = self._infer_step(1, "pick_bag", "/api/pick_bag", pre_sleep=3.0)
+        if result.success:
+            self.log.info("[pick_bag] Step 1 完成，开始复位...")
+            self.client.reset("pick_bag_reset")
+        return result
 
     def _run_bag_large_items(self):
         return self._infer_step(2, "bag_large_items", "/api/bag_large_items")
